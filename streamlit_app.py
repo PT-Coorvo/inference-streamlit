@@ -130,6 +130,16 @@ def get_score_color_class(score):
     else:
         return "score-poor"
 
+def generate_chart_key(chart_type, *identifiers):
+    """Generate unique key for charts to avoid duplicate element ID errors"""
+    import hashlib
+    key_string = f"{chart_type}_{'_'.join(str(id).replace(' ', '_').replace(',', '_') for id in identifiers)}"
+    # Truncate if too long and add hash for uniqueness
+    if len(key_string) > 50:
+        hash_suffix = hashlib.md5(key_string.encode()).hexdigest()[:8]
+        key_string = key_string[:42] + hash_suffix
+    return key_string
+
 def format_salary(salary):
     """Format salary untuk display"""
     if salary >= 1000000:
@@ -547,33 +557,38 @@ def main():
                     
                     with col2:
                         # Scoring Breakdown Chart
-                        scores = {
-                            'Skills Match': rec['skills_match_score'],
-                            'Content-Based': rec['content_similarity_score'],
-                            'Collaborative': rec['collaborative_score'],
-                            'Features': rec['feature_score']
-                        }
-                        
-                        fig = go.Figure(data=[
-                            go.Bar(
-                                x=list(scores.keys()),
-                                y=list(scores.values()),
-                                marker_color=['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4']
+                        try:
+                            scores = {
+                                'Skills Match': rec['skills_match_score'],
+                                'Content-Based': rec['content_similarity_score'],
+                                'Collaborative': rec['collaborative_score'],
+                                'Features': rec['feature_score']
+                            }
+                            
+                            fig = go.Figure(data=[
+                                go.Bar(
+                                    x=list(scores.keys()),
+                                    y=list(scores.values()),
+                                    marker_color=['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4']
+                                )
+                            ])
+                            
+                            fig.update_layout(
+                                title=f"Score Breakdown",
+                                yaxis_title="Score (%)",
+                                height=300,
+                                showlegend=False
                             )
-                        ])
-                        
-                        fig.update_layout(
-                            title=f"Score Breakdown",
-                            yaxis_title="Score (%)",
-                            height=300,
-                            showlegend=False
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Final Score Display
-                        score_class = get_score_color_class(rec['final_score'])
-                        st.markdown(f"<h2 class='{score_class}'>Final Score: {rec['final_score']}%</h2>", unsafe_allow_html=True)
+                            
+                            st.plotly_chart(fig, use_container_width=True, key=generate_chart_key("score_breakdown", rec['rank'], selected_job_id, rec['name']))
+                            
+                            # Final Score Display
+                            score_class = get_score_color_class(rec['final_score'])
+                            st.markdown(f"<h2 class='{score_class}'>Final Score: {rec['final_score']}%</h2>", unsafe_allow_html=True)
+                            
+                        except Exception as e:
+                            st.error(f"Error displaying chart: {str(e)}")
+                            st.write(f"**Final Score:** {rec['final_score']}%")
             
             # Export Options
             st.header("📥 Export Results")
@@ -672,35 +687,43 @@ def main():
             # Final Score Distribution
             final_scores = [r['final_score'] for r in all_recommendations]
             
-            fig = px.histogram(
-                x=final_scores,
-                nbins=20,
-                title="Final Score Distribution",
-                labels={'x': 'Final Score (%)', 'y': 'Count'}
-            )
-            fig.update_layout(showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                fig = px.histogram(
+                    x=final_scores,
+                    nbins=20,
+                    title="Final Score Distribution",
+                    labels={'x': 'Final Score (%)', 'y': 'Count'}
+                )
+                fig.update_layout(showlegend=False)
+                st.plotly_chart(fig, use_container_width=True, key="final_score_distribution")
+            except Exception as e:
+                st.error(f"Error displaying score distribution chart: {str(e)}")
+                st.write(f"Final scores: {final_scores[:10]}...")  # Show sample data
         
         with col2:
             # Component Scores Comparison
-            score_components = []
-            for r in all_recommendations:
-                score_components.extend([
-                    {'Component': 'Skills Match', 'Score': r['skills_match_score'], 'Candidate': r['name']},
-                    {'Component': 'Content-Based', 'Score': r['content_similarity_score'], 'Candidate': r['name']},
-                    {'Component': 'Collaborative', 'Score': r['collaborative_score'], 'Candidate': r['name']},
-                    {'Component': 'Features', 'Score': r['feature_score'], 'Candidate': r['name']}
-                ])
-            
-            df_components = pd.DataFrame(score_components)
-            
-            fig = px.box(
-                df_components,
-                x='Component',
-                y='Score',
-                title="Score Components Distribution"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                score_components = []
+                for r in all_recommendations:
+                    score_components.extend([
+                        {'Component': 'Skills Match', 'Score': r['skills_match_score'], 'Candidate': r['name']},
+                        {'Component': 'Content-Based', 'Score': r['content_similarity_score'], 'Candidate': r['name']},
+                        {'Component': 'Collaborative', 'Score': r['collaborative_score'], 'Candidate': r['name']},
+                        {'Component': 'Features', 'Score': r['feature_score'], 'Candidate': r['name']}
+                    ])
+                
+                df_components = pd.DataFrame(score_components)
+                
+                fig = px.box(
+                    df_components,
+                    x='Component',
+                    y='Score',
+                    title="Score Components Distribution"
+                )
+                st.plotly_chart(fig, use_container_width=True, key="score_components_box")
+            except Exception as e:
+                st.error(f"Error displaying components chart: {str(e)}")
+                st.write("Score components data temporarily unavailable")
         
         # Job-wise Performance
         st.subheader("💼 Job-wise Performance")
@@ -724,22 +747,28 @@ def main():
         col1, col2 = st.columns(2)
         
         with col1:
-            fig = px.bar(
-                df_job_perf,
-                x='Job',
-                y='Average Score',
-                title="Average Score by Job Position"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                fig = px.bar(
+                    df_job_perf,
+                    x='Job',
+                    y='Average Score',
+                    title="Average Score by Job Position"
+                )
+                st.plotly_chart(fig, use_container_width=True, key="avg_score_by_job")
+            except Exception as e:
+                st.error(f"Error displaying average score chart: {str(e)}")
         
         with col2:
-            fig = px.bar(
-                df_job_perf,
-                x='Job',
-                y='Top Score',
-                title="Top Score by Job Position"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                fig = px.bar(
+                    df_job_perf,
+                    x='Job',
+                    y='Top Score',
+                    title="Top Score by Job Position"
+                )
+                st.plotly_chart(fig, use_container_width=True, key="top_score_by_job")
+            except Exception as e:
+                st.error(f"Error displaying top score chart: {str(e)}")
         
         # Skills Analysis
         st.subheader("🛠️ Skills Analysis")
@@ -753,14 +782,20 @@ def main():
         if all_skills:
             skills_count = pd.Series(all_skills).value_counts().head(10)
             
-            fig = px.bar(
-                x=skills_count.values,
-                y=skills_count.index,
-                orientation='h',
-                title="Top 10 Most Matched Skills"
-            )
-            fig.update_layout(yaxis_title="Skills", xaxis_title="Match Count")
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                fig = px.bar(
+                    x=skills_count.values,
+                    y=skills_count.index,
+                    orientation='h',
+                    title="Top 10 Most Matched Skills"
+                )
+                fig.update_layout(yaxis_title="Skills", xaxis_title="Match Count")
+                st.plotly_chart(fig, use_container_width=True, key="top_matched_skills")
+            except Exception as e:
+                st.error(f"Error displaying skills chart: {str(e)}")
+                st.write("**Top Skills:**")
+                for skill, count in skills_count.head(5).items():
+                    st.write(f"• {skill}: {count} matches")
     
     # =============================================================================
     # TAB 3: CANDIDATES
@@ -873,14 +908,20 @@ def main():
                     
                     # Skills breakdown chart
                     if len(skills_list) > 0:
-                        skills_df = pd.DataFrame({'Skills': skills_list})
-                        fig = px.bar(
-                            y=skills_list[:10],  # Top 10 skills
-                            orientation='h',
-                            title=f"Skills Overview ({len(skills_list)} total)"
-                        )
-                        fig.update_layout(showlegend=False, height=400)
-                        st.plotly_chart(fig, use_container_width=True)
+                        try:
+                            skills_df = pd.DataFrame({'Skills': skills_list})
+                            fig = px.bar(
+                                y=skills_list[:10],  # Top 10 skills
+                                orientation='h',
+                                title=f"Skills Overview ({len(skills_list)} total)"
+                            )
+                            fig.update_layout(showlegend=False, height=400)
+                            st.plotly_chart(fig, use_container_width=True, key=generate_chart_key("candidate_skills", selected_candidate))
+                        except Exception as e:
+                            st.error(f"Error displaying skills chart: {str(e)}")
+                            st.write("**Skills List:**")
+                            for skill in skills_list[:10]:
+                                st.write(f"• {skill}")
 
     # =============================================================================
     # TAB 4: ADD CANDIDATE
